@@ -1,0 +1,51 @@
+{
+  "appPolicies" : {
+    "eula" : "",
+    "policies" : [
+      {
+        "locale" : "en_US",
+        "policyText" : "",
+        "policyURL" : ""
+      }
+    ]
+  },
+  "identifier" : "A1B2C3D4-E5F6-7890-ABCD-EF1234567890",
+  "nonRenewingSubscriptions" : [
+
+  ],
+  "products" : [
+    {
+      "displayPrice" : "9.99",
+      "familyShareable" : true,
+      "internalID" : "6787725652",
+      "localizations" : [
+        {
+          "description" : "Unlock unlimited searches, scans, and every StorePing Pro feature.",
+          "displayName" : "StorePing Pro Unlock",
+          "locale" : "en_US"
+        }
+      ],
+      "productID" : "Store.ping.Unlock",
+      "referenceName" : "48",
+      "type" : "NonConsumable"
+    }
+  ],
+  "settings" : {
+    "_applicationInternalID" : "6787725652",
+    "_developerTeamID" : "DHA828G7P3",
+    "_failTransactionsEnabled" : false,
+    "_lastSynchronizedDate" : 773568000,
+    "_locale" : "en_US",
+    "_storefront" : "USA",
+    "_storeKitErrors" : [
+
+    ]
+  },
+  "subscriptionGroups" : [
+
+  ],
+  "version" : {
+    "major" : 4,
+    "minor" : 0
+  }
+}
