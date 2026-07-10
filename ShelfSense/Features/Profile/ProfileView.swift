@@ -14,6 +14,7 @@ struct ProfileView: View {
     @Query private var stores: [Store]
     @Query private var deals: [Deal]
     @State private var showResetDatabaseAlert = false
+    @State private var showPaywall = false
 
     var body: some View {
         NavigationStack {
@@ -32,7 +33,7 @@ struct ProfileView: View {
                     Section {
                         Button {
                             premiumStore.beginStoreServicesIfNeeded()
-                            premiumStore.paywallPresented = true
+                            showPaywall = true
                         } label: {
                             Label("Upgrade to \(AppBrand.proName)", systemImage: "crown.fill")
                                 .foregroundStyle(ShelfTheme.copperLight)
@@ -163,6 +164,9 @@ struct ProfileView: View {
                 }
             } message: {
                 Text("This deletes local inventory, lists, and receipts on this device. Force quit \(AppBrand.name), then open it again.")
+            }
+            .sheet(isPresented: $showPaywall) {
+                PaywallView(premiumStore: premiumStore)
             }
         }
     }

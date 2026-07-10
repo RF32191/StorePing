@@ -10,6 +10,10 @@ struct PaywallView: View {
     @Environment(\.dismiss) private var dismiss
     @Bindable var premiumStore: PremiumAccessStore
 
+    @State private var showRedeem = false
+    @State private var redeemUsername = ""
+    @State private var redeemPassword = ""
+
     var body: some View {
         NavigationStack {
             ScrollView {
@@ -39,6 +43,25 @@ struct PaywallView: View {
         .task {
             premiumStore.beginStoreServicesIfNeeded()
             await premiumStore.refreshProducts()
+        }
+        .alert("Enter Access Code", isPresented: $showRedeem) {
+            TextField("Username", text: $redeemUsername)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+            SecureField("Password", text: $redeemPassword)
+            Button("Unlock") {
+                if premiumStore.redeemManualUnlock(username: redeemUsername, password: redeemPassword) {
+                    redeemUsername = ""
+                    redeemPassword = ""
+                    dismiss()
+                }
+            }
+            Button("Cancel", role: .cancel) {
+                redeemUsername = ""
+                redeemPassword = ""
+            }
+        } message: {
+            Text("Enter your \(AppBrand.name) username and password to unlock lifetime access.")
         }
     }
 
@@ -151,68 +174,25 @@ struct PaywallView: View {
                     .foregroundStyle(ShelfTheme.copperLight)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
-        } else if premiumStore.isLoadingProducts {
-            ProgressView("Loading StorePing Pro…")
-                .tint(ShelfTheme.copperLight)
-        } else if let product = premiumStore.unlockProduct {
-            Button {
-                Task { await premiumStore.purchase(product) }
-            } label: {
-                VStack(spacing: 6) {
-                    HStack {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(product.displayName)
-                                .font(.shelfHeadline)
-                            Text(product.description)
-                                .font(.shelfCaption)
-                                .foregroundStyle(ShelfTheme.textSecondary.opacity(0.9))
-                                .multilineTextAlignment(.leading)
-                        }
-                        Spacer()
-                        Text(product.displayPrice)
-                            .font(.system(.title2, design: .rounded, weight: .bold))
-                    }
-                    Text("One-time unlock · Restore anytime")
-                        .font(.system(size: 10, weight: .medium))
-                        .foregroundStyle(ShelfTheme.textSecondary.opacity(0.85))
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                .foregroundStyle(ShelfTheme.backgroundPrimary)
-                .padding()
-                .background(ShelfTheme.copperGradient)
-                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-                .shadow(color: ShelfTheme.copper.opacity(0.45), radius: 12, y: 6)
-            }
-            .buttonStyle(.plain)
-            .disabled(premiumStore.purchaseInFlight)
         } else {
-            VStack(spacing: 12) {
-                Text("Product ID: Store.ping.Unlock")
-                    .font(.shelfCaption)
-                    .foregroundStyle(ShelfTheme.textTertiary)
-                Text("Add the in-app purchase in App Store Connect, then test with StorePing.storekit or a Sandbox Apple ID.")
-                    .font(.shelfCaption)
-                    .foregroundStyle(ShelfTheme.textTertiary)
-                    .multilineTextAlignment(.center)
+            unlockButton
 
-                #if DEBUG
-                Button("Unlock Pro (Debug)") {
-                    premiumStore.unlockForTesting()
-                    dismiss()
+            if premiumStore.lastError != nil {
+                Button("Retry") {
+                    Task { await premiumStore.refreshProducts() }
                 }
-                .font(.shelfHeadline)
-                .foregroundStyle(ShelfTheme.backgroundPrimary)
-                .padding(.horizontal, 24)
-                .padding(.vertical, 12)
-                .background(ShelfTheme.copperGradient)
-                .clipShape(Capsule())
-                #endif
+                .font(.shelfCaption)
+                .foregroundStyle(ShelfTheme.copperLight)
             }
-        }
 
-        if premiumStore.purchaseInFlight {
-            ProgressView()
-                .tint(ShelfTheme.copperLight)
+            #if DEBUG
+            Button("Unlock Pro (Debug)") {
+                premiumStore.unlockForTesting()
+                dismiss()
+            }
+            .font(.shelfCaption)
+            .foregroundStyle(ShelfTheme.textTertiary)
+            #endif
         }
 
         if let error = premiumStore.lastError {
@@ -223,12 +203,62 @@ struct PaywallView: View {
         }
 
         if !premiumStore.isPremium {
-            Button("Restore Purchases") {
-                Task { await premiumStore.restorePurchases() }
+            HStack(spacing: 16) {
+                Button("Restore Purchases") {
+                    Task { await premiumStore.restorePurchases() }
+                }
+                .disabled(premiumStore.purchaseInFlight)
+
+                Button("Have an access code?") {
+                    showRedeem = true
+                }
             }
             .font(.shelfCaption)
             .foregroundStyle(ShelfTheme.accentSecondary)
         }
+    }
+
+    /// Always-tappable primary CTA. Loads the product on demand if it hasn't arrived yet.
+    private var unlockButton: some View {
+        Button {
+            Task { await premiumStore.purchaseUnlock() }
+        } label: {
+            VStack(spacing: 6) {
+                HStack {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(premiumStore.unlockProduct?.displayName ?? "Unlock \(AppBrand.proName)")
+                            .font(.shelfHeadline)
+                        Text(premiumStore.unlockProduct?.description ?? "Unlimited searches, scans, GPS, and every Pro feature.")
+                            .font(.shelfCaption)
+                            .foregroundStyle(ShelfTheme.backgroundPrimary.opacity(0.85))
+                            .multilineTextAlignment(.leading)
+                    }
+                    Spacer()
+                    if premiumStore.purchaseInFlight {
+                        ProgressView()
+                            .tint(ShelfTheme.backgroundPrimary)
+                    } else if let price = premiumStore.unlockProduct?.displayPrice {
+                        Text(price)
+                            .font(.system(.title2, design: .rounded, weight: .bold))
+                    } else {
+                        Image(systemName: "crown.fill")
+                            .font(.title3)
+                    }
+                }
+                Text("One-time unlock · Restore anytime")
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(ShelfTheme.backgroundPrimary.opacity(0.85))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .foregroundStyle(ShelfTheme.backgroundPrimary)
+            .padding()
+            .frame(maxWidth: .infinity)
+            .background(ShelfTheme.copperGradient)
+            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .shadow(color: ShelfTheme.copper.opacity(0.45), radius: 12, y: 6)
+        }
+        .buttonStyle(.plain)
+        .disabled(premiumStore.purchaseInFlight)
     }
 
     private var legalFooter: some View {

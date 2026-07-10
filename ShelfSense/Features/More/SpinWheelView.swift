@@ -47,6 +47,8 @@ struct SpinWheelView: View {
     @State private var tickTask: Task<Void, Never>?
     @State private var nearbyFastFood: [NearbyFastFoodOption] = []
     @State private var isLoadingNearby = false
+    @State private var hasLoadedNearby = false
+    @State private var usingFallbackFood = false
     @State private var showConfetti = false
     @State private var idleWobble = false
     @State private var resultScale: CGFloat = 0.85
@@ -112,6 +114,7 @@ struct SpinWheelView: View {
                         resetSelection()
                         winningIndex = nil
                         if newMode == .fastFood {
+                            hasLoadedNearby = false
                             Task { await loadNearbyFastFood() }
                         }
                     }
@@ -182,10 +185,34 @@ struct SpinWheelView: View {
 
             if isLoadingNearby {
                 Text("Finding fast food near you…")
-            } else if !nearbyFastFood.isEmpty {
-                Text("\(min(nearbyFastFood.count, 8)) nearby spots on wheel")
+            } else if hasLoadedNearby && !usingFallbackFood {
+                Text("\(min(nearbyFastFood.count, 8)) nearby spots ready to spin")
+            } else if usingFallbackFood {
+                Text("No location — using popular picks")
             } else {
-                Text("Using popular picks — enable location for nearby spots")
+                Text("Preparing nearby spots…")
+            }
+
+            Spacer(minLength: 0)
+
+            if !isLoadingNearby && !locationManager.isLocationAvailable {
+                Button("Enable") {
+                    Task {
+                        await locationManager.requestPermissions()
+                        await loadNearbyFastFood()
+                    }
+                }
+                .font(.system(size: 11, weight: .bold))
+                .foregroundStyle(ShelfTheme.copperLight)
+            } else if !isLoadingNearby {
+                Button {
+                    Task { await loadNearbyFastFood() }
+                } label: {
+                    Image(systemName: "arrow.clockwise")
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundStyle(ShelfTheme.copperLight)
+                }
+                .accessibilityLabel("Reload nearby fast food")
             }
         }
         .font(.shelfCaption)
@@ -371,23 +398,35 @@ struct SpinWheelView: View {
         }
     }
 
+    private var isSpinBlocked: Bool {
+        if isSpinning || segments.isEmpty { return true }
+        if mode == .fastFood && (isLoadingNearby || !hasLoadedNearby) { return true }
+        return false
+    }
+
+    private var spinButtonTitle: String {
+        if isSpinning { return "Spinning…" }
+        if mode == .fastFood && (isLoadingNearby || !hasLoadedNearby) { return "Loading nearby food…" }
+        return "Spin!"
+    }
+
     private var spinButton: some View {
         Button { spin() } label: {
-            Label(isSpinning ? "Spinning…" : "Spin!", systemImage: "arrow.trianglehead.clockwise")
+            Label(spinButtonTitle, systemImage: isSpinBlocked && !isSpinning ? "hourglass" : "arrow.trianglehead.clockwise")
                 .font(.shelfHeadline)
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 14)
                 .background {
                     RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .fill(ShelfTheme.copperGradient.opacity(isSpinning ? 0.2 : 0.38))
+                        .fill(ShelfTheme.copperGradient.opacity(isSpinBlocked ? 0.2 : 0.38))
                         .overlay {
                             RoundedRectangle(cornerRadius: 14, style: .continuous)
                                 .strokeBorder(ShelfTheme.copperLight.opacity(0.35), lineWidth: 1)
                         }
                 }
-                .foregroundStyle(ShelfTheme.copperLight)
+                .foregroundStyle(ShelfTheme.copperLight.opacity(isSpinBlocked && !isSpinning ? 0.55 : 1))
         }
-        .disabled(isSpinning || segments.isEmpty)
+        .disabled(isSpinBlocked)
         .buttonStyle(ShelfPressButtonStyle())
     }
 
@@ -468,12 +507,28 @@ struct SpinWheelView: View {
 
     private func loadNearbyFastFood() async {
         isLoadingNearby = true
+        hasLoadedNearby = false
         locationManager.startForegroundLocation()
-        if locationManager.currentLocation == nil {
-            try? await Task.sleep(for: .milliseconds(900))
+
+        // Wait up to ~6s for a real GPS fix so the wheel gets local spots, not just fallbacks.
+        var attempts = 0
+        while locationManager.currentLocation == nil,
+              locationManager.isLocationAvailable,
+              attempts < 12 {
+            try? await Task.sleep(for: .milliseconds(500))
+            attempts += 1
         }
-        nearbyFastFood = await NearbyFastFoodService.nearbyOptions(near: locationManager.currentLocation?.coordinate)
+
+        let coordinate = locationManager.currentLocation?.coordinate
+        let options = await NearbyFastFoodService.nearbyOptions(near: coordinate)
+
+        guard !Task.isCancelled else { return }
+
+        nearbyFastFood = options
+        // If we had no coordinate, results are the popular fallback list.
+        usingFallbackFood = coordinate == nil
         isLoadingNearby = false
+        hasLoadedNearby = true
     }
 
     private func spin() {

@@ -98,6 +98,10 @@ final class PremiumAccessStore {
     /// App Store Connect product ID (Reference Name: 48, Apple ID: 6787725652)
     static let unlockProductID = "Store.ping.Unlock"
 
+    /// Manual lifetime unlock credentials (owner/comp access).
+    private static let manualUnlockUsername = "ShelfSense"
+    private static let manualUnlockPassword = "1994696969969696969696767676769"
+
     private static let premiumKey = "premiumAccessUnlocked"
     private static let usagePrefix = "premiumWeeklyUsage."
 
@@ -146,16 +150,41 @@ final class PremiumAccessStore {
 
     func refreshProducts() async {
         isLoadingProducts = true
+        lastError = nil
         defer { isLoadingProducts = false }
 
         do {
             products = try await Product.products(for: [Self.unlockProductID])
-            lastError = products.isEmpty
-                ? "StorePing Pro isn’t available yet. Check App Store Connect product Store.ping.Unlock."
-                : nil
+            if products.isEmpty {
+                lastError = "StorePing Pro is temporarily unavailable. Please try again in a moment."
+            }
         } catch {
-            lastError = error.localizedDescription
+            lastError = "Couldn’t reach the App Store. Check your connection and try again."
         }
+    }
+
+    /// Single entry point for the paywall CTA: loads the product if needed, then purchases.
+    /// Guarantees the button always does something, even before products finish loading.
+    func purchaseUnlock() async {
+        if isPremium {
+            dismissPaywall()
+            return
+        }
+
+        if unlockProduct == nil {
+            beginStoreServicesIfNeeded()
+            await refreshProducts()
+        }
+
+        guard let product = unlockProduct else {
+            if lastError == nil {
+                lastError = "Couldn’t reach the App Store. Check your connection and try again."
+            }
+            HapticManager.warning()
+            return
+        }
+
+        await purchase(product)
     }
 
     func canUse(_ feature: PremiumFeature) -> Bool {
@@ -241,6 +270,25 @@ final class PremiumAccessStore {
         } catch {
             lastError = error.localizedDescription
         }
+    }
+
+    /// Redeems a lifetime unlock with the owner username/password. Returns true on success.
+    @discardableResult
+    func redeemManualUnlock(username: String, password: String) -> Bool {
+        let user = username.trimmingCharacters(in: .whitespacesAndNewlines)
+        let pass = password.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard user == Self.manualUnlockUsername, pass == Self.manualUnlockPassword else {
+            lastError = "Incorrect username or password."
+            HapticManager.warning()
+            return false
+        }
+
+        lastError = nil
+        unlockPremium()
+        dismissPaywall()
+        HapticManager.success()
+        return true
     }
 
     #if DEBUG
